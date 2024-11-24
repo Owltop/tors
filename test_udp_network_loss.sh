@@ -1,12 +1,12 @@
 #!/bin/bash
-# Тест потери пакетов
+# Тест потери пакетов при установке соединения
 
 echo "=== Запуск системы ==="
 docker compose up --build -d
 
 echo "=== Имитация потери пакетов для worker3 (30%) ==="
 
-docker compose exec -u root worker3 iptables -A OUTPUT -m statistic --mode random --probability 0.3 -j DROP # при 1 тоже работает
+docker compose exec -u root worker3 iptables -A INPUT -m statistic --mode random --probability 0.3 -j DROP
 
 echo "=== Ожидание появления 'Итоговый результат' в логах ==="
 

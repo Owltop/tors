@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <mutex>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,17 +17,12 @@
 #include <algorithm>
 #include <fcntl.h>
 
+#include "task.h"
 
-#define MAX_SERVERS 10
+
 #define DISCOVER_PORT 12345
 #define TASK_PORT 12346
-#define TIMEOUT_SEC 2
-
-struct Task {
-    double start;
-    double end;
-    double step;
-};
+#define TIMEOUT 2
 
 struct Server {
     struct sockaddr_in addr;
@@ -38,10 +34,6 @@ struct Server {
 };
 
 class ServerList {
-private:
-    std::vector<Server> servers;
-    mutable std::mutex mutex;
-
 public:
     ServerList() = default;
 
@@ -54,11 +46,9 @@ public:
             });
 
         if (it == servers.end()) {
-            if (servers.size() < MAX_SERVERS) {
-                servers.push_back(server);
-                std::cout << "Добавлен новый сервер: " << inet_ntoa(server.addr.sin_addr) 
-                          << ":" << ntohs(server.addr.sin_port) << std::endl;
-            }
+            servers.push_back(server);
+            std::cout << "Добавлен новый сервер: " << inet_ntoa(server.addr.sin_addr) 
+                      << ":" << ntohs(server.addr.sin_port) << std::endl;
         } else {
             it->active = true;
         }
@@ -98,6 +88,9 @@ public:
         }
         std::cout << "=====================\n" << std::endl;
     }
+private:
+    std::vector<Server> servers;
+    mutable std::mutex mutex;
 };
 
 ServerList serverList;
@@ -128,7 +121,7 @@ void discoverServers() {
         throw std::runtime_error("Ошибка отправки broadcast");
     }
 
-    struct timeval tv{TIMEOUT_SEC, 0};
+    struct timeval tv{TIMEOUT, 0};
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     std::vector<char> buffer(256);
@@ -155,7 +148,7 @@ void discoverServers() {
     serverList.printActiveServers();
 }
 
-double process_task(Server& server, const Task& task) {
+double processTask(Server& server, const Task& task) {
     std::cout << "Отправка задачи на сервер " << inet_ntoa(server.addr.sin_addr)
               << " (диапазон: " << task.start << " - " << task.end 
               << ", шаг: " << task.step << ")" << std::endl;
@@ -166,7 +159,7 @@ double process_task(Server& server, const Task& task) {
         throw std::runtime_error("Ошибка создания сокета");
     }
 
-    struct timeval tv{TIMEOUT_SEC, 0};
+    struct timeval tv{TIMEOUT, 0};
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     struct sockaddr_in taskAddr = server.addr;
@@ -223,7 +216,7 @@ double process_task(Server& server, const Task& task) {
         FD_SET(sock, &read_fds);
 
         // Ждём данных от сервера
-        struct timeval wait_time = {TIMEOUT_SEC, 0};
+        struct timeval wait_time = {TIMEOUT, 0};
         int select_result = select(sock + 1, &read_fds, NULL, NULL, &wait_time);
 
         if (select_result < 0) {
@@ -290,14 +283,14 @@ double distribute_tasks(const std::vector<Task>& tasks) {
 
             futures.push_back({task_index, std::async(std::launch::async, 
                 [&server, task = tasks[task_index]]() {
-                    return process_task(server, task);
+                    return processTask(server, task);
                 }
             )});
 
             taskServers.push_back(server);
         }
 
-        for (int i = 0; i < futures.size(); ++i) {
+        for (size_t i = 0; i < futures.size(); ++i) {
             auto& futurePair = futures[i];
             auto& task_index = futurePair.first;
             auto& future = futurePair.second;
@@ -308,7 +301,7 @@ double distribute_tasks(const std::vector<Task>& tasks) {
                 std::cerr << "Ошибка выполнения задачи: " << e.what() << std::endl;
                 serverList.deactivateServer(taskServers[i]);
                 pending_tasks.push(task_index);
-                discoverServers();
+                // discoverServers();
             }
         }
         futures.clear();
@@ -331,7 +324,7 @@ int main(int argc, char* argv[]) {
 
         double start = std::stod(argv[1]);
         double end = std::stod(argv[2]); 
-        double step = std::stod(argv[3]);
+        double step_for_integral = std::stod(argv[3]);
 
         std::vector<Task> tasks;
 
@@ -341,11 +334,12 @@ int main(int argc, char* argv[]) {
             Task task;
             task.start = x;
             task.end = std::min(x + step_for_worker, end);
-            task.step = step;
+            task.step = step_for_integral;
             tasks.push_back(task);
         }
 
         std::cout << "Начало работы мастера" << std::endl;
+        // sleep(10); // Для test_udp_network_loss.sh
         discoverServers();
         
         double result = distribute_tasks(tasks);
