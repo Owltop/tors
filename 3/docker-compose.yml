@@ -1,0 +1,22 @@
+services:
+
+  node1:
+    build: .
+    command: ["python", "-u", "node.py", "--port", "5000", "--replicas", "node2:5001", "node3:5002"]
+    ports:
+      - "5000:5000"
+
+  node2:
+    build: .
+    command: ["python", "-u", "node.py", "--port", "5001", "--replicas", "node1:5000", "node3:5002"]
+    ports:
+      - "5001:5001"
+
+  node3:
+    build: .
+    command: ["python", "-u", "node.py", "--port", "5002", "--replicas", "node1:5000", "node2:5001"]
+    ports:
+      - "5002:5002"
+
+networks:
+  default:

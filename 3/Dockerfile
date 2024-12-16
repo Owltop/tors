@@ -4,7 +4,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN pip install flask requests pytest
+RUN pip install flask requests
 
 COPY node.py .
 
